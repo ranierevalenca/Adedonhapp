@@ -31,6 +31,8 @@ https://ranierevalenca.github.io/Adedonhapp/
 - Timer de 5 minutos com alerta no último minuto
 - Validação automática por letra
 - Validação básica por dicionário português embutido (evita palavras aleatórias)
+- Timer de 5 minutos com alerta no último minuto
+- Validação automática por letra
 - Pontuação automática (10 único, 5 repetido, 0 inválido/vazio)
 - Ranking acumulado (pontos, vitórias, média)
 - Histórico de rodadas
