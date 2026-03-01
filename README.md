@@ -35,6 +35,7 @@ https://ranierevalenca.github.io/Adedonhapp/
 - Tema claro/escuro
 - Persistência local com `localStorage`
 - Exportação de ranking para PDF (via impressão do navegador)
+- Botão **Instalar App** (PWA) para criar atalho no celular
 
 ## Rodar localmente
 

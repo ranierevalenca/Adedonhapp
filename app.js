@@ -13,6 +13,12 @@ const state = loadState() || {
   history: [],
   timerLeft: 300,
   timerRunning: false,
+  answersLocked: false,
+  roundScored: false
+};
+
+let intervalId;
+let deferredInstallPrompt = null;
   answersLocked: false
 };
 
@@ -26,6 +32,7 @@ function addPlayer() {
   const name = $('player-name').value.trim();
   const avatar = $('player-avatar').value.trim() || '🙂';
   if (!name || state.players.length >= 10) return;
+  if (!state.players.some((p) => p.name.toLowerCase() === name.toLowerCase())) {
   if (state.players.length < 2 || !state.players.some((p) => p.name.toLowerCase() === name.toLowerCase())) {
     state.players.push({ id: crypto.randomUUID(), name, avatar });
     state.ranking[name] ||= { points: 0, wins: 0, rounds: 0 };
@@ -62,6 +69,7 @@ function newRound() {
     state.timerLeft = 300;
     state.answersLocked = false;
     state.timerRunning = true;
+    state.roundScored = false;
     $('draw-animation').classList.add('hidden');
     buildAnswerRows();
     startTimer();
@@ -79,6 +87,7 @@ function startTimer() {
       state.timerLeft = 0;
       state.timerRunning = false;
       state.answersLocked = true;
+      lockInputs();
       alert('TEMPO ESGOTADO!');
     }
     renderTimer();
@@ -90,12 +99,24 @@ function buildAnswerRows() {
   const body = $('answers-body');
   body.innerHTML = '';
   state.players.forEach((player) => {
+    const total = state.ranking[player.name]?.points || 0;
+    const tr = document.createElement('tr');
+    tr.dataset.player = player.name;
+    tr.innerHTML = `<td>${player.avatar} ${player.name}</td>${categories.map((c) => `<td><input data-cat="${c}" ${state.answersLocked ? 'disabled' : ''}></td>`).join('')}<td class="score">0</td><td class="total">${total}</td>`;
     const tr = document.createElement('tr');
     tr.dataset.player = player.name;
     tr.innerHTML = `<td>${player.avatar} ${player.name}</td>${categories.map((c) => `<td><input data-cat="${c}" ${state.answersLocked ? 'disabled' : ''}></td>`).join('')}<td class="score">0</td>`;
     body.appendChild(tr);
   });
 }
+
+function lockInputs() {
+  $('answers-body').querySelectorAll('input').forEach((i) => i.disabled = true);
+}
+
+function scoreRound() {
+  if (!state.currentLetter) return alert('Inicie uma rodada antes de pontuar.');
+  if (state.roundScored) return alert('Esta rodada já foi pontuada.');
 
 function scoreRound() {
   const entries = [];
@@ -104,6 +125,9 @@ function scoreRound() {
     categories.forEach((cat) => {
       const input = tr.querySelector(`[data-cat="${cat}"]`);
       const value = input.value.trim().toUpperCase();
+      const valid = Boolean(value) && value.startsWith(state.currentLetter);
+      entries.push({ player, cat, value, valid, input });
+      input.classList.toggle('valid', valid);
       const valid = value && value.startsWith(state.currentLetter);
       entries.push({ player, cat, value, valid, input });
       input.classList.toggle('valid', !!valid);
@@ -113,6 +137,20 @@ function scoreRound() {
 
   const grouped = {};
   entries.forEach((e) => {
+    if (!e.valid) return;
+    const key = `${e.cat}:${e.value}`;
+    grouped[key] = (grouped[key] || 0) + 1;
+  });
+
+  const roundScores = Object.fromEntries(state.players.map((p) => [p.name, 0]));
+  entries.forEach((e) => {
+    if (!e.valid) return;
+    const key = `${e.cat}:${e.value}`;
+    roundScores[e.player] += grouped[key] === 1 ? 10 : 5;
+  });
+
+  const top = Math.max(...Object.values(roundScores));
+  Object.entries(roundScores).forEach(([name, pts]) => {
     if (e.valid) {
       const key = `${e.cat}:${e.value}`;
       grouped[key] = (grouped[key] || 0) + 1;
@@ -132,6 +170,24 @@ function scoreRound() {
     rank.points += pts;
     rank.rounds += 1;
     if (pts === top && top > 0) rank.wins += 1;
+
+    const row = [...$('answers-body').querySelectorAll('tr')].find((r) => r.dataset.player === name);
+    row.querySelector('.score').textContent = pts;
+    row.querySelector('.total').textContent = rank.points;
+  });
+
+  state.history.unshift({
+    round: state.totalRoundsPlayed,
+    letter: state.currentLetter,
+    scores: roundScores,
+    date: new Date().toLocaleString('pt-BR')
+  });
+
+  state.timerRunning = false;
+  state.answersLocked = true;
+  state.roundScored = true;
+  lockInputs();
+
     const row = [...$('answers-body').querySelectorAll('tr')].find((r) => r.dataset.player === name);
     row.querySelector('.score').textContent = pts;
   });
@@ -158,12 +214,14 @@ function rankingSorted() {
 function renderRanking() {
   const medals = ['🥇', '🥈', '🥉'];
   $('ranking-content').innerHTML = rankingSorted().map(([name, r], i) =>
+    `<div class="podium">${medals[i] || '🏅'} <strong>${name}</strong> — ${r.points} pts | vitórias: ${r.wins} | média: ${(r.points / Math.max(r.rounds, 1)).toFixed(1)}</div>`
     `<div class="podium">${medals[i] || '🏅'} <strong>${name}</strong> — ${r.points} pts | vitórias: ${r.wins} | média: ${(r.points / Math.max(r.rounds,1)).toFixed(1)}</div>`
   ).join('') || '<p>Sem dados ainda.</p>';
 }
 
 function renderChampion() {
   const [name, rank] = rankingSorted()[0] || ['Ninguém', { points: 0 }];
+  $('champion-content').innerHTML = `<h3>Campeão: ${name}</h3><p>Total: ${rank.points} pontos</p>${rankingSorted().slice(0, 3).map(([n, r], i) => `<p>${['🥇', '🥈', '🥉'][i]} ${n} - ${r.points}</p>`).join('')}`;
   $('champion-content').innerHTML = `<h3>Campeão: ${name}</h3><p>Total: ${rank.points} pontos</p>${rankingSorted().slice(0,3).map(([n,r],i)=>`<p>${['🥇','🥈','🥉'][i]} ${n} - ${r.points}</p>`).join('')}`;
 }
 
@@ -185,6 +243,40 @@ function resetChampionship() {
 
 function exportRankingPdf() {
   const w = window.open('', '_blank');
+  w.document.write(`<h1>Ranking - Adedonha Bribs Championship</h1>${rankingSorted().map(([n, r], i) => `<p>${i + 1}. ${n} - ${r.points} pontos</p>`).join('')}`);
+  w.print();
+}
+
+async function installApp() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  $('install-app').classList.add('hidden');
+}
+
+function setupInstallPrompt() {
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    $('install-app').classList.remove('hidden');
+  });
+
+  window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    $('install-app').classList.add('hidden');
+  });
+}
+
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    await navigator.serviceWorker.register('./sw.js');
+  } catch {
+    // ignore
+  }
+}
+
   w.document.write(`<h1>Ranking - Adedonha Bribs Championship</h1>${rankingSorted().map(([n,r],i)=>`<p>${i+1}. ${n} - ${r.points} pontos</p>`).join('')}`);
   w.print();
 }
@@ -208,6 +300,17 @@ $('finish-round').onclick = scoreRound;
 $('open-ranking').onclick = () => $('ranking-modal').showModal();
 $('close-ranking').onclick = () => $('ranking-modal').close();
 $('reset-championship').onclick = resetChampionship;
+$('toggle-theme').onclick = () => {
+  state.theme = state.theme === 'light' ? 'dark' : 'light';
+  render();
+};
+$('new-championship').onclick = resetChampionship;
+$('continue-rounds').onclick = () => {
+  state.roundLimit = 0;
+  $('champion-modal').close();
+  render();
+};
+$('install-app').onclick = installApp;
 $('toggle-theme').onclick = () => { state.theme = state.theme === 'light' ? 'dark' : 'light'; render(); };
 $('new-championship').onclick = resetChampionship;
 $('continue-rounds').onclick = () => { state.roundLimit = 0; $('champion-modal').close(); render(); };
@@ -219,4 +322,6 @@ exportBtn.onclick = exportRankingPdf;
 $('setup-card').querySelector('.actions').appendChild(exportBtn);
 
 if (state.currentLetter && state.players.length) buildAnswerRows();
+registerServiceWorker();
+setupInstallPrompt();
 render();

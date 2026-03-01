@@ -14,6 +14,10 @@
     <meta name="twitter:title" content="Adedonha Bribs Championship" />
     <meta name="twitter:description" content="Webapp para campeonato de Adedonha com ranking geral." />
     <meta name="twitter:image" content="https://ranierevalenca.github.io/Adedonhapp/og-image.svg" />
+    <meta name="theme-color" content="#6a5acd" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="apple-touch-icon" href="./favicon.svg" />
+    <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="apple-touch-icon" href="./favicon.svg" />
     <link rel="stylesheet" href="styles.css" />
@@ -25,6 +29,7 @@
         <p>Competição oficial de criatividade.</p>
       </div>
       <div class="header-actions">
+        <button id="install-app" class="btn secondary hidden">Instalar App</button>
         <button id="toggle-theme" class="btn ghost">🌙/☀️ Tema</button>
         <button id="open-ranking" class="btn secondary">Ranking Geral</button>
       </div>
@@ -76,6 +81,7 @@
           <table id="answers-table">
             <thead>
               <tr>
+                <th>Jogador</th><th>Nome</th><th>Cidade</th><th>Animal</th><th>Objeto</th><th>Comida</th><th>Cor</th><th>Rodada</th><th>Total</th>
                 <th>Jogador</th><th>Nome</th><th>Cidade</th><th>Animal</th><th>Objeto</th><th>Comida</th><th>Cor</th><th>Pontos</th>
               </tr>
             </thead>
