@@ -1,19 +1,6 @@
 const STORAGE_KEY = 'adedonha_championship_v1';
 const categories = ['nome', 'cidade', 'animal', 'objeto', 'comida', 'cor'];
-const BUILD_VERSION = '2026.03.02';
-
-const portugueseDictionary = {
-  nome: ['amanda', 'ana', 'andre', 'augusto', 'bruna', 'bianca', 'beatriz', 'carla', 'caio', 'daniel', 'diego', 'eduarda', 'felipe', 'gabriela', 'joao', 'julia', 'lara', 'lucas', 'marcos', 'maria', 'natalia', 'otavio', 'paulo', 'rafael', 'samuel', 'thiago', 'vinicius'],
-  cidade: ['aracaju', 'bauru', 'campinas', 'curitiba', 'belem', 'brasilia', 'fortaleza', 'goiania', 'manaus', 'natal', 'osasco', 'palmas', 'recife', 'salvador', 'santos', 'teresina', 'uberlandia', 'vitoria'],
-  animal: ['abelha', 'anta', 'arara', 'baleia', 'boi', 'burro', 'cachorro', 'camelo', 'coelho', 'coruja', 'elefante', 'foca', 'gato', 'girafa', 'jacare', 'lagarto', 'lobo', 'macaco', 'onca', 'ovelha', 'pato', 'porco', 'raposa', 'sapo', 'tigre', 'urso', 'vaca', 'zebra'],
-  objeto: ['agulha', 'anel', 'bola', 'bone', 'cadeira', 'caneta', 'copo', 'escova', 'faca', 'filtro', 'garrafa', 'janela', 'lampada', 'livro', 'mesa', 'mochila', 'oculos', 'pente', 'quadro', 'relogio', 'sapato', 'tesoura', 'vassoura'],
-  comida: ['abacate', 'arroz', 'batata', 'bolo', 'brigadeiro', 'cuscuz', 'feijao', 'frango', 'hamburguer', 'iogurte', 'lasanha', 'macarrao', 'manga', 'omelete', 'panqueca', 'pizza', 'queijo', 'risoto', 'salada', 'sopa', 'tapioca', 'uva'],
-  cor: ['amarelo', 'anil', 'azul', 'bege', 'branco', 'bronze', 'cinza', 'ciano', 'creme', 'dourado', 'escarlate', 'lilas', 'laranja', 'marrom', 'preto', 'prata', 'roxo', 'rosa', 'verde', 'vermelho', 'violeta']
-};
-
-const normalizedDictionary = Object.fromEntries(
-  Object.entries(portugueseDictionary).map(([cat, words]) => [cat, new Set(words.map(normalizeWord))])
-);
+const BUILD_VERSION = '2026.03.03';
 
 const state = loadState() || {
   theme: 'light',
@@ -29,28 +16,29 @@ const state = loadState() || {
   timerRunning: false,
   answersLocked: false,
   roundScored: false,
-  isGuest: false
+  isGuest: false,
+  selectedPlayerName: '',
+  roomId: ''
 };
 
 let intervalId;
 let deferredInstallPrompt = null;
+let syncChannel = null;
+let suppressBroadcast = false;
+let guestSyncPollId = null;
+
 const $ = (id) => document.getElementById(id);
+const el = (id) => $(id);
 
 function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 function loadState() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; } }
-function el(id) { return $(id); }
 
 function normalizeWord(value) {
   return String(value || '')
+    .trim()
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z]/g, '');
-}
-
-function isValidPortugueseWord(category, value) {
-  const normalized = normalizeWord(value);
-  return normalizedDictionary[category]?.has(normalized) || false;
+    .replace(/[\u0300-\u036f]/g, '');
 }
 
 function addPlayer() {
@@ -87,10 +75,13 @@ function updateRoundLimitFromInputs() {
 
 function startChampionship() {
   if (state.players.length < 2) return alert('Cadastre entre 2 e 10 jogadores.');
-  updateRoundLimitFromInputs();
+  if (state.isGuest && !state.selectedPlayerName) return alert('Escolha seu nome para entrar na partida.');
+
+  if (!state.isGuest) updateRoundLimitFromInputs();
   el('setup-card')?.classList.add('hidden');
   el('game-card')?.classList.remove('hidden');
   el('history-card')?.classList.remove('hidden');
+  buildAnswerRows();
   render();
 }
 
@@ -125,6 +116,7 @@ function newRound() {
     state.roundScored = false;
     buildAnswerRows();
     startTimer();
+    broadcastSync('new-round');
     render();
   }, 1200);
 }
@@ -134,6 +126,7 @@ function stopRound() {
   state.timerRunning = false;
   state.answersLocked = true;
   lockInputs();
+  broadcastSync('stop-round');
   renderTimer();
   saveState();
 }
@@ -151,6 +144,7 @@ function startTimer() {
       lockInputs();
       alert('TEMPO ESGOTADO!');
     }
+    broadcastSync('timer');
     renderTimer();
     saveState();
   }, 1000);
@@ -160,11 +154,26 @@ function buildAnswerRows() {
   const body = el('answers-body');
   if (!body) return;
   body.innerHTML = '';
+
   state.players.forEach((player) => {
     const tr = document.createElement('tr');
     tr.dataset.player = player.name;
-    tr.innerHTML = `<td>${player.avatar} ${player.name}</td>${categories.map((c) => `<td><input data-cat="${c}" ${state.answersLocked ? 'disabled' : ''}></td>`).join('')}<td class="score">0</td>`;
+    tr.innerHTML = `<td>${player.avatar} ${player.name}</td>${categories.map((cat) => `<td><input data-cat="${cat}"></td>`).join('')}<td class="score">0</td>`;
     body.appendChild(tr);
+  });
+
+  applyInputPermissions();
+}
+
+function applyInputPermissions() {
+  const rows = [...(el('answers-body')?.querySelectorAll('tr') || [])];
+
+  rows.forEach((row) => {
+    const rowPlayer = row.dataset.player;
+    const canEditRow = !state.isGuest || (state.selectedPlayerName && rowPlayer === state.selectedPlayerName);
+    row.querySelectorAll('input').forEach((input) => {
+      input.disabled = state.answersLocked || !canEditRow;
+    });
   });
 }
 
@@ -173,44 +182,38 @@ function lockInputs() {
 }
 
 function scoreRound() {
+  if (state.isGuest) return alert('Somente o criador da partida pode pontuar a rodada.');
   if (!state.currentLetter) return alert('Inicie uma rodada antes de pontuar.');
   if (state.roundScored) return alert('Esta rodada já foi pontuada.');
 
-  const bodyRows = [...(el('answers-body')?.querySelectorAll('tr') || [])];
+  const rows = [...(el('answers-body')?.querySelectorAll('tr') || [])];
   const entries = [];
 
-  bodyRows.forEach((tr) => {
+  rows.forEach((tr) => {
     const player = tr.dataset.player;
     categories.forEach((cat) => {
       const input = tr.querySelector(`[data-cat="${cat}"]`);
-      const value = input?.value.trim() || '';
-      const normalized = normalizeWord(value);
-      const startsWithLetter = normalized.startsWith(state.currentLetter.toLowerCase());
-      const inDictionary = isValidPortugueseWord(cat, value);
-      const valid = Boolean(normalized) && startsWithLetter && inDictionary;
-
-      entries.push({ player, cat, normalized, valid, input });
+      const raw = input?.value.trim() || '';
+      const normalized = normalizeWord(raw);
+      const valid = Boolean(normalized) && normalized.startsWith(state.currentLetter.toLowerCase());
+      entries.push({ player, cat, value: raw, normalized, valid, input });
       input?.classList.toggle('valid', valid);
       input?.classList.toggle('invalid', !valid);
-      if (input) {
-        input.title = valid
-          ? 'Resposta válida'
-          : 'Inválido: precisa existir em português e iniciar com a letra da rodada.';
-      }
+      if (input) input.title = valid ? 'Resposta válida' : 'Inválido: precisa começar com a letra da rodada.';
     });
   });
 
   const grouped = {};
   entries.forEach((entry) => {
     if (!entry.valid) return;
-    const key = `${entry.cat}:${entry.normalized}`;
+    const key = `${entry.cat}:${entry.value.trim().toUpperCase()}`;
     grouped[key] = (grouped[key] || 0) + 1;
   });
 
   const roundScores = Object.fromEntries(state.players.map((p) => [p.name, 0]));
   entries.forEach((entry) => {
     if (!entry.valid) return;
-    const key = `${entry.cat}:${entry.normalized}`;
+    const key = `${entry.cat}:${entry.value.trim().toUpperCase()}`;
     roundScores[entry.player] += grouped[key] === 1 ? 10 : 5;
   });
 
@@ -221,8 +224,8 @@ function scoreRound() {
     rank.rounds += 1;
     if (points === top && top > 0) rank.wins += 1;
 
-    const row = bodyRows.find((r) => r.dataset.player === name);
-    row?.querySelector('.score')?.replaceChildren(String(points));
+    const row = rows.find((r) => r.dataset.player === name);
+    if (row) row.querySelector('.score').textContent = String(points);
   });
 
   state.history.unshift({
@@ -237,6 +240,7 @@ function scoreRound() {
   state.roundScored = true;
   lockInputs();
   maybeFinishChampionship();
+  broadcastSync('score-round');
   render();
 }
 
@@ -294,13 +298,111 @@ function exportRankingPdf() {
   popup.print();
 }
 
-function encodeRoomState() {
+function applySyncPayload(payload) {
+  if (!payload || payload.type !== 'sync') return;
+
+  suppressBroadcast = true;
+  state.currentLetter = payload.currentLetter;
+  state.usedLetters = payload.usedLetters || [];
+  state.timerLeft = payload.timerLeft;
+  state.timerRunning = payload.timerRunning;
+  state.answersLocked = payload.answersLocked;
+  state.totalRoundsPlayed = payload.totalRoundsPlayed;
+  state.currentRound = payload.currentRound;
+  state.roundScored = payload.roundScored;
+  suppressBroadcast = false;
+
+  render();
+  if (state.timerRunning) startTimer();
+}
+
+function startGuestSyncPolling() {
+  if (!state.isGuest || !state.roomId) return;
+  if (guestSyncPollId) clearInterval(guestSyncPollId);
+
+  guestSyncPollId = setInterval(() => {
+    try {
+      const raw = localStorage.getItem(`adedonha-sync-${state.roomId}`);
+      if (!raw) return;
+      const payload = JSON.parse(raw);
+      applySyncPayload(payload);
+    } catch {
+      // ignore polling parse failures
+    }
+  }, 700);
+}
+
+function setupStorageSync() {
+
+  window.addEventListener('storage', (event) => {
+    if (!state.isGuest || !state.roomId) return;
+    if (event.key !== `adedonha-sync-${state.roomId}` || !event.newValue) return;
+    try {
+      const payload = JSON.parse(event.newValue);
+      applySyncPayload(payload);
+    } catch {
+      // ignore malformed payload
+    }
+  });
+}
+
+function ensureSyncChannel(roomId) {
+
+  if (!roomId) return;
+  if (syncChannel) syncChannel.close();
+  syncChannel = new BroadcastChannel(`adedonha-room-${roomId}`);
+  syncChannel.onmessage = (event) => {
+    if (!state.isGuest) return;
+    const payload = event.data;
+    if (!payload || payload.type !== 'sync') return;
+
+    suppressBroadcast = true;
+    state.currentLetter = payload.currentLetter;
+    state.usedLetters = payload.usedLetters || [];
+    state.timerLeft = payload.timerLeft;
+    state.timerRunning = payload.timerRunning;
+    state.answersLocked = payload.answersLocked;
+    state.totalRoundsPlayed = payload.totalRoundsPlayed;
+    state.currentRound = payload.currentRound;
+    state.roundScored = payload.roundScored;
+    suppressBroadcast = false;
+
+    render();
+    if (state.timerRunning) startTimer();
+  };
+}
+
+function broadcastSync(reason) {
+  if (suppressBroadcast || state.isGuest || !syncChannel) return;
   const payload = {
+    type: 'sync',
+    reason,
+    currentLetter: state.currentLetter,
+    usedLetters: state.usedLetters,
+    timerLeft: state.timerLeft,
+    timerRunning: state.timerRunning,
+    answersLocked: state.answersLocked,
+    totalRoundsPlayed: state.totalRoundsPlayed,
+    currentRound: state.currentRound,
+    roundScored: state.roundScored
+  };
+
+  syncChannel.postMessage(payload);
+  try {
+    localStorage.setItem(`adedonha-sync-${state.roomId}`, JSON.stringify(payload));
+  } catch {
+    // ignore storage issues
+  }
+}
+
+function encodeRoomState() {
+  if (!state.roomId) state.roomId = crypto.randomUUID();
+  const payload = {
+    roomId: state.roomId,
     players: state.players,
     roundLimit: state.roundLimit,
     usedLetters: state.usedLetters,
     createdAt: Date.now(),
-    hostCreatedAt: Date.now(),
     buildVersion: BUILD_VERSION
   };
   return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
@@ -313,7 +415,10 @@ function decodeRoomState(encoded) {
 
 function createRoomShare() {
   if (state.players.length < 2) return alert('Cadastre ao menos 2 jogadores antes de gerar QR.');
+  if (state.isGuest) return alert('Convidado não pode criar nova partida por QR.');
   updateRoundLimitFromInputs();
+  if (!state.roomId) state.roomId = crypto.randomUUID();
+  ensureSyncChannel(state.roomId);
 
   const token = encodeRoomState();
   const link = `${location.origin}${location.pathname}?room=${encodeURIComponent(token)}`;
@@ -326,6 +431,25 @@ function createRoomShare() {
   el('room-modal')?.showModal();
 }
 
+function populateGuestSelection() {
+  const guestSelect = el('guest-player-select');
+  const guestWrap = el('guest-player-wrap');
+  if (!guestSelect || !guestWrap) return;
+
+  guestSelect.innerHTML = '<option value="">Selecione seu nome</option>' +
+    state.players.map((p) => `<option value="${p.name}">${p.name}</option>`).join('');
+  guestWrap.classList.remove('hidden');
+}
+
+function confirmGuestPlayer() {
+  const guestSelect = el('guest-player-select');
+  if (!guestSelect) return;
+  const selected = guestSelect.value;
+  if (!selected) return alert('Escolha seu nome para entrar na partida.');
+  state.selectedPlayerName = selected;
+  render();
+}
+
 function applyRoomToken(token) {
   try {
     const room = decodeRoomState(token);
@@ -333,6 +457,11 @@ function applyRoomToken(token) {
 
     state.players = room.players.slice(0, 10);
     state.isGuest = true;
+    state.selectedPlayerName = '';
+    state.roomId = room.roomId || crypto.randomUUID();
+    ensureSyncChannel(state.roomId);
+    startGuestSyncPolling();
+
     state.roundLimit = Number(room.roundLimit) || 0;
     state.usedLetters = Array.isArray(room.usedLetters) ? room.usedLetters : [];
     state.ranking = Object.fromEntries(state.players.map((p) => [p.name, state.ranking[p.name] || { points: 0, wins: 0, rounds: 0 }]));
@@ -343,8 +472,9 @@ function applyRoomToken(token) {
     if (roundUnlimited) roundUnlimited.checked = state.roundLimit === 0;
     if (roundLimit && roundUnlimited) roundLimit.disabled = roundUnlimited.checked;
 
+    populateGuestSelection();
     render();
-    alert('Partida carregada! Agora clique em Iniciar Campeonato.');
+    alert('Partida carregada! Escolha seu nome para entrar como convidado.');
   } catch {
     alert('Não foi possível carregar a partida a partir desse QR/link.');
   }
@@ -365,14 +495,12 @@ function joinRoomFromInput() {
   }
 }
 
-
 function shareWhatsApp() {
   let link = window.location.href;
   if (state.players.length >= 2) {
     const token = encodeRoomState();
     link = `${location.origin}${location.pathname}?room=${encodeURIComponent(token)}`;
   }
-
   const message = `🎮 Vamos jogar Adedonha Bribs Championship! Entre na partida: ${link}`;
   window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
 }
@@ -381,6 +509,8 @@ function preloadRoomFromUrl() {
   const token = new URLSearchParams(location.search).get('room');
   if (!token) {
     state.isGuest = false;
+    state.selectedPlayerName = '';
+    if (state.roomId) ensureSyncChannel(state.roomId);
     return;
   }
   applyRoomToken(token);
@@ -406,8 +536,6 @@ function setupInstallPrompt() {
     el('install-app')?.classList.add('hidden');
   });
 }
-
-
 
 async function forceRefreshApp() {
   try {
@@ -452,16 +580,24 @@ function applyRolePermissions() {
   if (roleHint) {
     if (state.isGuest) {
       roleHint.classList.remove('hidden');
-      roleHint.textContent = 'Modo convidado: apenas o criador inicia nova rodada.';
+      roleHint.textContent = state.selectedPlayerName
+        ? `Modo convidado: você joga como ${state.selectedPlayerName}. Apenas o criador inicia rodada.`
+        : 'Modo convidado: escolha seu nome para entrar. Apenas o criador inicia rodada.';
     } else {
       roleHint.classList.add('hidden');
       roleHint.textContent = '';
     }
   }
+
+  const startBtn = el('start-championship');
+  if (startBtn && state.isGuest) startBtn.disabled = !state.selectedPlayerName;
+
+  applyInputPermissions();
 }
 
 function render() {
   document.documentElement.dataset.theme = state.theme;
+
   const playersList = el('players-list');
   if (playersList) playersList.innerHTML = state.players.map((p) => `<li>${p.avatar} ${p.name}</li>`).join('');
 
@@ -503,6 +639,7 @@ bindClick('continue-rounds', () => {
 bindClick('install-app', installApp);
 bindClick('create-room', createRoomShare);
 bindClick('join-room', joinRoomFromInput);
+bindClick('confirm-guest-player', confirmGuestPlayer);
 bindClick('close-room-modal', () => el('room-modal')?.close());
 
 bindClick('toggle-theme', () => {
@@ -531,6 +668,8 @@ if (state.currentLetter && state.players.length) buildAnswerRows();
 if (el('round-limit')) el('round-limit').value = state.roundLimit > 0 ? state.roundLimit : 5;
 if (el('round-unlimited')) el('round-unlimited').checked = state.roundLimit === 0;
 if (el('round-limit') && el('round-unlimited')) el('round-limit').disabled = el('round-unlimited').checked;
+if (state.roomId) ensureSyncChannel(state.roomId);
+setupStorageSync();
 registerServiceWorker();
 setupInstallPrompt();
 preloadRoomFromUrl();

@@ -30,7 +30,7 @@ https://ranierevalenca.github.io/Adedonhapp/
 - Definição manual do número de rodadas (ou ilimitado)
 - Timer de 5 minutos com alerta no último minuto
 - Validação automática por letra
-- Validação básica por dicionário português embutido (evita palavras aleatórias)
+- Validação por letra inicial da rodada (sem bloqueio por dicionário)
 - Pontuação automática (10 único, 5 repetido, 0 inválido/vazio)
 - Ranking acumulado (pontos, vitórias, média)
 - Histórico de rodadas
@@ -41,8 +41,9 @@ https://ranierevalenca.github.io/Adedonhapp/
 - Botão **Atualizar App** para limpar cache/service worker e carregar a versão mais nova
 - QR Code da partida para compartilhar o estado inicial e entrar em outros dispositivos
 - Botão **Compartilhar WhatsApp** para enviar link da partida
-- Permissões por link/QR: convidado não pode adicionar/editar jogadores e não pode iniciar nova rodada
+- Permissões por link/QR: convidado escolhe o próprio nome da lista, não pode adicionar/editar jogadores e não pode iniciar nova rodada
 - Botão **Stop** disponível para todos os participantes da partida
+- Sincronização de letra e tempo entre telas da mesma sala (host sincroniza convidados)
 
 ## Rodar localmente
 

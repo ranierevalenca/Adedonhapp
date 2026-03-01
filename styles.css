@@ -44,6 +44,7 @@ textarea { min-height: 70px; resize: vertical; }
 .btn.ghost { background: transparent; border: 1px solid #cfd6e6; color: var(--text); }
 .actions { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: .8rem; }
 .join-card { margin-top: .8rem; display: grid; gap: .5rem; }
+#guest-player-wrap { display: grid; gap: .5rem; margin-top: .25rem; }
 .player-list { list-style: none; padding: 0; margin: .8rem 0; display: grid; gap: .3rem; }
 .player-list li { background: rgba(106,90,205,.12); padding: .4rem .6rem; border-radius: 8px; }
 .round-top { display: flex; gap: .8rem; align-items: center; flex-wrap: wrap; }
